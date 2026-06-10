@@ -579,7 +579,7 @@ function startSession(){ runPhases(buildSession(),true); }
 function runPhases(phases,session){
   RUN={list:phases,idx:0,left:0,timer:null,paused:false,session};
   document.getElementById('overlay').classList.add('show');
-  if(AUDIO.on) ambientStart();
+  if(AUDIO.on) ambientStart('ocean');
   document.getElementById('ovPause').textContent='暂停';
   document.getElementById('ovRing').style.strokeDasharray=CIRC;
   step();
@@ -635,7 +635,7 @@ function beep(){
 }
 
 /* ---------- 舒缓环境音乐（纯合成 · 离线可用 · 户外开阔感） ---------- */
-let AUDIO={ctx:null,master:null,tone:null,conv:null,voices:[],playing:false,on:true,mood:'work'};
+let AUDIO={ctx:null,master:null,tone:null,conv:null,voices:[],playing:false,on:true,mood:'work',scene:'calm',gullTimer:null};
 function makeImpulse(ctx,dur,decay){
   const rate=ctx.sampleRate,len=Math.floor(rate*dur),buf=ctx.createBuffer(2,len,rate);
   for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);
@@ -652,12 +652,16 @@ function audioInit(){
   const conv=ctx.createConvolver(); conv.buffer=makeImpulse(ctx,4,2.2);
   const wet=ctx.createGain(); wet.gain.value=.7; conv.connect(wet); wet.connect(master); AUDIO.conv=conv;
 }
-function ambientStart(){
+function ambientStart(scene){
   audioInit(); const ctx=AUDIO.ctx; if(ctx.state==='suspended') ctx.resume();
+  if(scene) AUDIO.scene=scene;
   setMusicTarget();
   if(AUDIO.playing) return; AUDIO.playing=true;
-  const now=ctx.currentTime; AUDIO.voices=[];
-  // 柔和和声铺底（开放和弦，慢速起伏）
+  AUDIO.voices=[];
+  if(AUDIO.scene==='ocean') buildOcean(ctx); else buildCalm(ctx);
+}
+// 冥想场景：柔和和声 + 空旷风声
+function buildCalm(ctx){
   const freqs=[146.83,220,277.18,329.63,440];
   freqs.forEach((f,i)=>{
     const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
@@ -669,7 +673,6 @@ function ambientStart(){
     const lg=ctx.createGain(); lg.gain.value=.05; lfo.connect(lg); lg.connect(g.gain);
     o.start(); o2.start(); lfo.start(); AUDIO.voices.push(o,o2,lfo);
   });
-  // 风声（噪声经带通缓慢扫频，营造户外空旷）
   const noise=ctx.createBufferSource(); noise.buffer=makeNoise(ctx,4); noise.loop=true;
   const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=480; bp.Q.value=.6;
   const ng=ctx.createGain(); ng.gain.value=.05;
@@ -678,8 +681,57 @@ function ambientStart(){
   const sg=ctx.createGain(); sg.gain.value=280; sweep.connect(sg); sg.connect(bp.frequency);
   noise.start(); sweep.start(); AUDIO.voices.push(noise,sweep);
 }
+// 运动场景：纯海边——浪体起伏 + 浪花泡沫（无和声）
+function buildOcean(ctx){
+  // 低频浪体：噪声经低通，靠两个不同周期的 LFO 叠加做"涌来又退去"
+  const sea=ctx.createBufferSource(); sea.buffer=makeNoise(ctx,6); sea.loop=true;
+  const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500; lp.Q.value=.7;
+  const seaG=ctx.createGain(); seaG.gain.value=.15;
+  sea.connect(lp); lp.connect(seaG); seaG.connect(AUDIO.tone); seaG.connect(AUDIO.conv);
+  const wave=ctx.createOscillator(); wave.type='sine'; wave.frequency.value=.09;     // 约每 11 秒一浪
+  const wDepth=ctx.createGain(); wDepth.gain.value=.1; wave.connect(wDepth); wDepth.connect(seaG.gain);
+  const wCut=ctx.createGain(); wCut.gain.value=420; wave.connect(wCut); wCut.connect(lp.frequency);
+  const wave2=ctx.createOscillator(); wave2.type='sine'; wave2.frequency.value=.063; // 第二个周期，叠出自然感
+  const w2Depth=ctx.createGain(); w2Depth.gain.value=.05; wave2.connect(w2Depth); w2Depth.connect(seaG.gain);
+  // 浪花/泡沫：高频嘶嘶，跟着浪峰冒出
+  const foam=ctx.createBufferSource(); foam.buffer=makeNoise(ctx,6); foam.loop=true;
+  const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=3200;
+  const foamG=ctx.createGain(); foamG.gain.value=.02;
+  foam.connect(hp); hp.connect(foamG); foamG.connect(AUDIO.tone); foamG.connect(AUDIO.conv);
+  const foamLfo=ctx.createOscillator(); foamLfo.type='sine'; foamLfo.frequency.value=.09; foamLfo.detune.value=40;
+  const fDepth=ctx.createGain(); fDepth.gain.value=.024; foamLfo.connect(fDepth); fDepth.connect(foamG.gain);
+  sea.start(); wave.start(); wave2.start(); foam.start(); foamLfo.start();
+  AUDIO.voices.push(sea,wave,wave2,foam,foamLfo);
+  AUDIO.gullTimer=setTimeout(scheduleGull, 4000); // 启动海鸥
+}
+// 合成一声海鸥啼叫（音高上扬再下滑 + 颤音）
+function playGull(ctx){
+  const t=ctx.currentTime;
+  const o=ctx.createOscillator(); o.type='sawtooth';
+  const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1500; bp.Q.value=4;
+  const g=ctx.createGain(); g.gain.value=0;
+  o.connect(bp); bp.connect(g); g.connect(AUDIO.tone); g.connect(AUDIO.conv);
+  o.frequency.setValueAtTime(820,t);
+  o.frequency.linearRampToValueAtTime(1550,t+0.08);
+  o.frequency.linearRampToValueAtTime(1120,t+0.34);
+  const vib=ctx.createOscillator(); vib.frequency.value=24;
+  const vg=ctx.createGain(); vg.gain.value=70; vib.connect(vg); vg.connect(o.frequency);
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(0.05,t+0.04);
+  g.gain.setValueAtTime(0.05,t+0.22);
+  g.gain.exponentialRampToValueAtTime(0.0008,t+0.42);
+  o.start(t); vib.start(t); o.stop(t+0.46); vib.stop(t+0.46);
+}
+// 每隔一阵随机来 1~3 声海鸥（仅海边场景）
+function scheduleGull(){
+  if(!AUDIO.playing || AUDIO.scene!=='ocean'){ AUDIO.gullTimer=null; return; }
+  const n=1+Math.floor(Math.random()*3);
+  for(let i=0;i<n;i++) setTimeout(()=>{ if(AUDIO.playing&&AUDIO.scene==='ocean') playGull(AUDIO.ctx); }, i*430);
+  AUDIO.gullTimer=setTimeout(scheduleGull, 9000+Math.random()*14000);
+}
 function ambientStop(){
   if(!AUDIO.ctx||!AUDIO.playing) return;
+  clearTimeout(AUDIO.gullTimer); AUDIO.gullTimer=null;
   const ctx=AUDIO.ctx, now=ctx.currentTime, voices=AUDIO.voices;
   AUDIO.master.gain.cancelScheduledValues(now);
   AUDIO.master.gain.setValueAtTime(AUDIO.master.gain.value,now);
@@ -716,7 +768,7 @@ document.getElementById('medMusic').onclick=toggleMusic;
 let MED={timer:null,t1:null,t2:null};
 function startMeditation(){
   document.getElementById('medOverlay').classList.add('show');
-  if(AUDIO.on) ambientStart();
+  if(AUDIO.on) ambientStart('calm');
   ambientMood('rest');
   let left=60; const numEl=document.getElementById('medNum'); numEl.textContent=left;
   breathCycle();
