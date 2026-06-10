@@ -406,12 +406,12 @@ const ICON={
 const REST=30; // 动作之间休息秒数（加倍到30秒）
 
 const EXERCISES = [
-  { id:'roll_back', name:'泡沫轴滚上背', emoji:'🌀', meta:'30秒 × 2组 · 松胸椎', cc:C.blue, cc2:C.cyan,
-    rounds:[{label:'第 1 组',secs:30},{label:'第 2 组',secs:30}],
+  { id:'roll_back', name:'泡沫轴滚上背', emoji:'🌀', meta:'1分钟 × 2组 · 松胸椎', cc:C.blue, cc2:C.cyan,
+    rounds:[{label:'第 1 组',secs:60},{label:'第 2 组',secs:60}],
     how:['躺地，泡沫轴横放在肩胛骨下方','双手抱头，臀部抬离地面','缓慢前后滚，在卡顿酸点处停住、上半身后仰'],
     warn:['别滚到脖子和腰，只滚肩胛到中背这一段'] },
-  { id:'roll_lat', name:'泡沫轴滚腋下侧面', emoji:'💠', meta:'每侧20秒 · 松背阔肌', cc:C.cyan, cc2:C.green,
-    rounds:[{label:'左 侧',secs:20},{label:'右 侧',secs:20}],
+  { id:'roll_lat', name:'泡沫轴滚腋下侧面', emoji:'💠', meta:'每侧1分钟 · 松背阔肌', cc:C.cyan, cc2:C.green,
+    rounds:[{label:'左 侧',secs:60},{label:'右 侧',secs:60}],
     how:['侧躺，泡沫轴压在腋下侧面（靠近肋骨那条肌肉）','下方手臂伸直过头','缓慢上下小幅滚动'],
     warn:['酸但不刺痛，刺痛就移开一点'] },
   { id:'wall_angel', name:'靠墙天使', emoji:'😇', meta:'10次 × 2组 · 激活后背', cc:C.orange, cc2:C.yellow, reps:true, estSecs:45,
@@ -420,8 +420,8 @@ const EXERCISES = [
   { id:'chin_tuck', name:'收下巴', emoji:'🙆', meta:'8次 · 每次保持5秒 · 治头前引', cc:C.pink, cc2:C.red, reps:true, estSecs:50,
     how:['靠墙站，下巴水平往后收，做出「双下巴」','后脑去贴墙，保持5秒再放松','重复8次'],
     warn:['是水平后移，不是低头！','眼睛始终平视前方'] },
-  { id:'upper_trap', name:'上斜方拉伸', emoji:'💆', meta:'每侧30秒 · 松紧张的斜方', cc:C.purple, cc2:C.pink,
-    rounds:[{label:'左侧 · 拉右肩',secs:30},{label:'右侧 · 拉左肩',secs:30}],
+  { id:'upper_trap', name:'上斜方拉伸', emoji:'💆', meta:'每侧1分钟 · 松紧张的斜方', cc:C.purple, cc2:C.pink,
+    rounds:[{label:'左侧 · 拉右肩',secs:60},{label:'右侧 · 拉左肩',secs:60}],
     how:['一只手坐在屁股下固定该侧肩膀别耸','头往对侧倒，耳朵找肩膀','对侧手轻搭头上加一点点重量'],
     warn:['被拉那侧的肩膀要沉住、别抬起来','是轻拉，不是用力掰'] },
   { id:'calf', name:'弓步压墙·小腿拉伸', emoji:'🦵', meta:'每侧30秒 · 解脚踝受限', cc:C.green, cc2:C.cyan,
@@ -589,6 +589,7 @@ function step(){
   const p=RUN.list[RUN.idx], ex=p.ex; RUN.left=p.secs;
   document.getElementById('ovBg').style.background=`linear-gradient(150deg,${ex.cc},${ex.cc2})`;
   document.getElementById('ovBg').style.filter=(p.type==='run')?'none':'brightness(.82) saturate(1.25)';
+  ambientMood(p.type==='run'?'work':'rest');
   document.getElementById('ovEx').textContent=ex.name;
   document.getElementById('ovRound').textContent=p.label;
   paint(true);
@@ -634,7 +635,7 @@ function beep(){
 }
 
 /* ---------- 舒缓环境音乐（纯合成 · 离线可用 · 户外开阔感） ---------- */
-let AUDIO={ctx:null,master:null,conv:null,voices:[],playing:false,on:true};
+let AUDIO={ctx:null,master:null,tone:null,conv:null,voices:[],playing:false,on:true,mood:'work'};
 function makeImpulse(ctx,dur,decay){
   const rate=ctx.sampleRate,len=Math.floor(rate*dur),buf=ctx.createBuffer(2,len,rate);
   for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);
@@ -647,6 +648,7 @@ function audioInit(){
   if(AUDIO.ctx) return;
   const Ctx=window.AudioContext||window.webkitAudioContext; const ctx=new Ctx(); AUDIO.ctx=ctx;
   const master=ctx.createGain(); master.gain.value=0; master.connect(ctx.destination); AUDIO.master=master;
+  const tone=ctx.createBiquadFilter(); tone.type='lowpass'; tone.frequency.value=1500; tone.Q.value=.4; tone.connect(master); AUDIO.tone=tone;
   const conv=ctx.createConvolver(); conv.buffer=makeImpulse(ctx,4,2.2);
   const wet=ctx.createGain(); wet.gain.value=.7; conv.connect(wet); wet.connect(master); AUDIO.conv=conv;
 }
@@ -662,7 +664,7 @@ function ambientStart(){
     const o2=ctx.createOscillator(); o2.type='triangle'; o2.frequency.value=f; o2.detune.value=7;
     const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1100;
     const g=ctx.createGain(); g.gain.value=.07;
-    o.connect(g); o2.connect(g); g.connect(lp); lp.connect(AUDIO.master); lp.connect(AUDIO.conv);
+    o.connect(g); o2.connect(g); g.connect(lp); lp.connect(AUDIO.tone); lp.connect(AUDIO.conv);
     const lfo=ctx.createOscillator(); lfo.frequency.value=.04+i*.015;
     const lg=ctx.createGain(); lg.gain.value=.05; lfo.connect(lg); lg.connect(g.gain);
     o.start(); o2.start(); lfo.start(); AUDIO.voices.push(o,o2,lfo);
@@ -671,7 +673,7 @@ function ambientStart(){
   const noise=ctx.createBufferSource(); noise.buffer=makeNoise(ctx,4); noise.loop=true;
   const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=480; bp.Q.value=.6;
   const ng=ctx.createGain(); ng.gain.value=.05;
-  noise.connect(bp); bp.connect(ng); ng.connect(AUDIO.master); ng.connect(AUDIO.conv);
+  noise.connect(bp); bp.connect(ng); ng.connect(AUDIO.tone); ng.connect(AUDIO.conv);
   const sweep=ctx.createOscillator(); sweep.frequency.value=.025;
   const sg=ctx.createGain(); sg.gain.value=280; sweep.connect(sg); sg.connect(bp.frequency);
   noise.start(); sweep.start(); AUDIO.voices.push(noise,sweep);
@@ -685,12 +687,20 @@ function ambientStop(){
   AUDIO.playing=false; AUDIO.voices=[];
   setTimeout(()=>voices.forEach(v=>{try{v.stop();}catch(e){}}),2200);
 }
-function setMusicTarget(){
-  if(!AUDIO.ctx||!AUDIO.master) return; const now=AUDIO.ctx.currentTime;
+function ambientMood(mode){
+  AUDIO.mood=mode;
+  if(!AUDIO.ctx||!AUDIO.tone||!AUDIO.master) return;
+  const now=AUDIO.ctx.currentTime;
+  const bright = mode==='work'?1600:460;          // 训练明亮 / 休息发闷
+  const vol = AUDIO.on ? (mode==='work'?0.55:0.32) : 0; // 训练饱满 / 休息柔和
+  AUDIO.tone.frequency.cancelScheduledValues(now);
+  AUDIO.tone.frequency.setValueAtTime(AUDIO.tone.frequency.value,now);
+  AUDIO.tone.frequency.linearRampToValueAtTime(bright, now+1.6);
   AUDIO.master.gain.cancelScheduledValues(now);
   AUDIO.master.gain.setValueAtTime(AUDIO.master.gain.value,now);
-  AUDIO.master.gain.linearRampToValueAtTime(AUDIO.on?.5:0, now+1.2);
+  AUDIO.master.gain.linearRampToValueAtTime(vol, now+1.6);
 }
+function setMusicTarget(){ ambientMood(AUDIO.mood||'work'); }
 function updateMusicIcons(){
   const t=AUDIO.on?ICON.note:ICON.noteOff;
   ['ovMusic','medMusic'].forEach(id=>{const e=document.getElementById(id); if(e) e.innerHTML=t;});
@@ -707,6 +717,7 @@ let MED={timer:null,t1:null,t2:null};
 function startMeditation(){
   document.getElementById('medOverlay').classList.add('show');
   if(AUDIO.on) ambientStart();
+  ambientMood('rest');
   let left=60; const numEl=document.getElementById('medNum'); numEl.textContent=left;
   breathCycle();
   MED.timer=setInterval(()=>{ left--; numEl.textContent=left>0?left:0; if(left<=0) stopMeditation(true); },1000);
